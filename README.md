@@ -49,3 +49,16 @@ commands to format it according to the provided .clang-format file:
 sudo apt install clang-format # install clang-format if you don't already have it
 find Source/ -iname *.h -o -iname *.cpp | xargs clang-format -i --style=file
 ```
+## macOS tape editing branch
+
+Run `bash Tools/build-macos.sh` to build with a current macOS SDK. This applies
+an idempotent compatibility patch to the pinned JUCE source and builds a native
+app under `build/macos/LMN-3-Emulator_artefacts/Release/`.
+
+On macOS the emulator creates **LMN-3 Emulator (virtual)** as its default MIDI
+output, so no IAC driver or physical MIDI device is required. Launch it before
+the LMN-3 DAW. External MIDI outputs remain selectable. Empty MIDI device lists
+are handled safely. Encoder 4 is orange to match the tape screen. Scroll knobs
+in either direction; double-click to push. Hover buttons and knobs for labels.
+Use the Mac Control key for modified controls, including Control + Record to
+capture synth audio. The focused keyboard plays notes with A W S E D F T G Y H U J K.

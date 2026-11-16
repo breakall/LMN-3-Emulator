@@ -2,14 +2,9 @@
 #include "MidiMappings.h"
 
 MainComponent::MainComponent()
-    : defaultMIDIOutput(juce::MidiOutput::openDevice(
-          juce::MidiOutput::getDefaultDevice().identifier)),
-      startTime(juce::Time::getMillisecondCounterHiRes() * 0.001),
+    : startTime(juce::Time::getMillisecondCounterHiRes() * 0.001),
       keyboardComponent(keyboardState,
                         juce::MidiKeyboardComponent::horizontalKeyboard) {
-    DBG("Initialized with default Midi Device: " +
-        defaultMIDIOutput->getDeviceInfo().name);
-
     setLookAndFeel(&lookAndFeel);
 
     initializeRow0Buttons();
@@ -17,6 +12,24 @@ MainComponent::MainComponent()
     initializeRow2Buttons();
     initializeRow3Buttons();
     initializeRow4Buttons();
+
+    const juce::StringArray row0Tips{"Loop", "Loop in", "Loop out", "Plus",
+                                     "Minus"};
+    const juce::StringArray row1Tips{"Cut / lift", "Paste / drop", "Slice",
+                                     "Save", "Undo"};
+    const juce::StringArray row2Tips{
+        "Control",   "Record (hold Control for audio)",
+        "Play",      "Stop",
+        "Settings",  "Tempo",
+        "Mixer",     "Tape / Tracks",
+        "Plugins",   "Modifiers",
+        "Sequencers"};
+    for (int i = 0; i < row0.size(); ++i)
+        row0[i]->setTooltip(row0Tips[i]);
+    for (int i = 0; i < row1.size(); ++i)
+        row1[i]->setTooltip(row1Tips[i]);
+    for (int i = 0; i < row2.size(); ++i)
+        row2[i]->setTooltip(row2Tips[i]);
 
     initializeEncoders();
 
@@ -142,6 +155,11 @@ void MainComponent::initializeEncoders() {
         auto *encoder = new Encoder();
         encoders.add(encoder);
         encoder->setName("encoder" + std::to_string(i));
+        const juce::StringArray tips{
+            "Select track; double-click: focus", "Loop out; Control: loop in",
+            "Tape position; Control: beat; double-click: solo",
+            "Zoom; Control: colour; double-click: mute"};
+        encoder->setTooltip(tips[i - 1]);
         encoder->addListener(this);
         juce::Colour encoderColour;
         switch (i) {
@@ -155,7 +173,7 @@ void MainComponent::initializeEncoders() {
             encoderColour = lookAndFeel.whiteColour;
             break;
         case 4:
-            encoderColour = lookAndFeel.redColour;
+            encoderColour = juce::Colour(0xffff9854);
             break;
         default:
             encoderColour = lookAndFeel.blueColour;
@@ -240,6 +258,11 @@ void MainComponent::initializeMidiOutput() {
 
     addAndMakeVisible(midiOutputList);
     midiOutputList.setTextWhenNoChoicesAvailable("No MIDI Outputs Enabled");
+#if JUCE_MAC
+    virtualMIDIOutput = juce::MidiOutput::createNewDevice("LMN-3 Emulator");
+    if (virtualMIDIOutput)
+        midiOutputList.addItem("LMN-3 Emulator (virtual)", 1);
+#endif
     auto midiOutputs = juce::MidiOutput::getAvailableDevices();
 
     juce::StringArray midiOutputNames;
@@ -248,7 +271,7 @@ void MainComponent::initializeMidiOutput() {
         midiOutputNames.add(output.name);
     }
 
-    midiOutputList.addItemList(midiOutputNames, 1);
+    midiOutputList.addItemList(midiOutputNames, virtualMIDIOutput ? 2 : 1);
     midiOutputList.onChange = [this] {
         setMidiOutput(midiOutputList.getSelectedItemIndex());
     };
@@ -294,16 +317,27 @@ void MainComponent::initializeMidiInput() {
 
 void MainComponent::setMidiOutput(int index) {
     auto list = juce::MidiOutput::getAvailableDevices();
-    auto newOutput = list[index];
-    deviceManager.setDefaultMidiOutputDevice(newOutput.identifier);
+    const bool useVirtual = virtualMIDIOutput && index == 0;
+    const int deviceIndex = index - (virtualMIDIOutput ? 1 : 0);
+    if (useVirtual) {
+        defaultMIDIOutput.reset();
+    } else if (juce::isPositiveAndBelow(deviceIndex, list.size())) {
+        defaultMIDIOutput =
+            juce::MidiOutput::openDevice(list[deviceIndex].identifier);
+    } else {
+        return;
+    }
     midiOutputList.setSelectedId(index + 1, juce::dontSendNotification);
     lastOutputIndex = index;
 }
 
 void MainComponent::setMidiInput(int index) {
     auto list = juce::MidiInput::getAvailableDevices();
-    deviceManager.removeMidiInputDeviceCallback(list[lastInputIndex].identifier,
-                                                this);
+    if (!juce::isPositiveAndBelow(index, list.size()))
+        return;
+    if (juce::isPositiveAndBelow(lastInputIndex, list.size()))
+        deviceManager.removeMidiInputDeviceCallback(
+            list[lastInputIndex].identifier, this);
 
     auto newInput = list[index];
 
@@ -541,7 +575,7 @@ void MainComponent::buttonStateChanged(juce::Button *button) {
     // only fire on button push and button release
     auto buttonPressed =
         newButtonState == juce::Button::ButtonState::buttonDown &&
-        previousButtonState == juce::Button::ButtonState::buttonOver;
+        previousButtonState != juce::Button::ButtonState::buttonDown;
     auto buttonReleased =
         previousButtonState == juce::Button::ButtonState::buttonDown;
     if (buttonPressed || buttonReleased) {
@@ -662,11 +696,19 @@ void MainComponent::encoderDecreased(Encoder *encoder) {
     }
 }
 
+void MainComponent::sendMidiMessage(const juce::MidiMessage &message) {
+    auto *output = lastOutputIndex == 0 && virtualMIDIOutput
+                       ? virtualMIDIOutput.get()
+                       : defaultMIDIOutput.get();
+    if (output)
+        output->sendMessageNow(message);
+}
+
 void MainComponent::sendCCMessage(int channel, int type, int value) {
     auto message = juce::MidiMessage::controllerEvent(channel, type, value);
     message.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001 -
                          startTime);
-    deviceManager.getDefaultMidiOutput()->sendMessageNow(message);
+    sendMidiMessage(message);
 }
 
 void MainComponent::handleNoteOn(juce::MidiKeyboardState *, int midiChannel,
@@ -675,7 +717,7 @@ void MainComponent::handleNoteOn(juce::MidiKeyboardState *, int midiChannel,
         auto message =
             juce::MidiMessage::noteOn(midiChannel, midiNoteNumber, velocity);
         message.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
-        deviceManager.getDefaultMidiOutput()->sendMessageNow(message);
+        sendMidiMessage(message);
     }
 }
 
@@ -684,7 +726,7 @@ void MainComponent::handleNoteOff(juce::MidiKeyboardState *, int midiChannel,
     if (!isAddingFromMidiInput) {
         auto message = juce::MidiMessage::noteOff(midiChannel, midiNoteNumber);
         message.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
-        deviceManager.getDefaultMidiOutput()->sendMessageNow(message);
+        sendMidiMessage(message);
     }
 }
 
@@ -786,7 +828,7 @@ void MainComponent::sliderValueChanged(juce::Slider *slider) {
             juce::MidiMessage::pitchWheel(MIDI_CHANNEL, joystick.getValue());
         message.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001 -
                              startTime);
-        deviceManager.getDefaultMidiOutput()->sendMessageNow(message);
+        sendMidiMessage(message);
     }
 }
 

@@ -18,11 +18,14 @@ class Encoder : public juce::Slider {
     void removeListener(Listener *l);
 
     void mouseDoubleClick(const juce::MouseEvent &) override;
+    void mouseUp(const juce::MouseEvent &) override;
+    void mouseWheelMove(const juce::MouseEvent &,
+                        const juce::MouseWheelDetails &) override;
     void valueChanged() override;
     void modifierKeysChanged(const juce::ModifierKeys &) override;
 
   private:
     juce::ListenerList<Listener> listeners;
-    double previousValue = 0;
+    double previousValue = 64;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Encoder)
 };

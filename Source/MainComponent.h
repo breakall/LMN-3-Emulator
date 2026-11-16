@@ -79,8 +79,10 @@ class MainComponent : public juce::Component,
     const int OCTAVE_MIN = -4;
 
     EmulatorLookAndFeel lookAndFeel;
+    juce::TooltipWindow tooltips{this, 500};
 
     std::unique_ptr<juce::MidiOutput> defaultMIDIOutput;
+    std::unique_ptr<juce::MidiOutput> virtualMIDIOutput;
     double startTime;
 
     juce::OwnedArray<juce::TextButton> row0;
@@ -187,6 +189,7 @@ class MainComponent : public juce::Component,
     void setMidiOutput(int index);
     void initializeMidiInput();
     void setMidiInput(int index);
+    void sendMidiMessage(const juce::MidiMessage &message);
     void sendCCMessage(int channel, int type, int value);
     void addMessageToList(const juce::MidiMessage &message,
                           const juce::String &source);

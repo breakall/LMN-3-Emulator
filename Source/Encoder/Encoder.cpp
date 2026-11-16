@@ -3,7 +3,7 @@
 Encoder::Encoder() {
     setSliderStyle(juce::Slider::SliderStyle::RotaryHorizontalVerticalDrag);
     setRange(0.0, 127.0, 1.0);
-    setValue(0.0);
+    setValue(64.0, juce::dontSendNotification);
     setVelocityBasedMode(false);
     setTextBoxStyle(juce::Slider::TextEntryBoxPosition::NoTextBox, true, 0, 0);
     setRotaryParameters(0, juce::MathConstants<float>::twoPi, false);
@@ -17,6 +17,27 @@ void Encoder::removeListener(Encoder::Listener *l) { listeners.remove(l); }
 
 void Encoder::mouseDoubleClick(const juce::MouseEvent &) {
     listeners.call([this](Listener &l) { l.encoderDoubleClicked(this); });
+}
+
+void Encoder::mouseUp(const juce::MouseEvent &event) {
+    juce::Slider::mouseUp(event);
+    // Re-centre after dragging so the next gesture can turn either way.
+    setValue(64.0, juce::dontSendNotification);
+    previousValue = 64;
+}
+
+void Encoder::mouseWheelMove(const juce::MouseEvent &event,
+                             const juce::MouseWheelDetails &wheel) {
+    modifierKeysChanged(event.mods);
+    const float delta = wheel.deltaY != 0 ? wheel.deltaY : wheel.deltaX;
+    if (delta == 0)
+        return;
+    const int steps =
+        juce::jlimit(1, 16, juce::roundToInt(std::abs(delta) * 10));
+    for (int i = 0; i < steps; ++i) {
+        const int next = (int(getValue()) + (delta > 0 ? 1 : 127)) % 128;
+        setValue(next, juce::sendNotificationSync);
+    }
 }
 
 void Encoder::valueChanged() {
